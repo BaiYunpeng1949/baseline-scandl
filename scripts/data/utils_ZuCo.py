@@ -115,6 +115,12 @@ class DataTransformer:
                 continue
             else:
                 nwords_fixated = 0
+
+                # TODO debug delete later
+                data = io.loadmat(files[subject], squeeze_me=True, struct_as_record=False)
+                print(data.keys())
+                print(type(data['sentenceData']))
+
                 for j, word in enumerate(sent.word):
                     token = re.sub('[^\w\s]', '', word.content)
                     #lowercase words at the beginning of the sentence only
