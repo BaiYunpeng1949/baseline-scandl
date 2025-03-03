@@ -2,7 +2,7 @@ import scipy.io as io
 import pandas as pd
 import numpy as np
 
-file_name_path = "/home/baiy4/ScanDL/scripts/data/zuco/task1/Raw data/ZAB/ZAB_SR1_ET.mat"
+file_name_path = "/home/baiy4/ScanDL/scripts/data/zuco/task2/Raw data/ZAB/ZAB_NR1_ET.mat"
 file_name = file_name_path.split('.')[0].split('/')[-1]
 
 mat_data = io.loadmat(file_name_path, squeeze_me=True, struct_as_record=False)
