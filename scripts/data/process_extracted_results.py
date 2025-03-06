@@ -46,7 +46,34 @@ def extract_word_metrics(sentence):
     
     return metrics
 
-def process_participant_json(json_file):
+def extract_fixation_sequence(sentence):
+    """Extract fixation sequence from a sentence"""
+    fixations = []
+    
+    # Get all fixations from the sentence
+    if 'fixation_sequence' in sentence:
+        for fix in sentence['fixation_sequence']:
+            fixations.append([fix['x'], fix['y'], fix['duration']])
+    
+    return fixations
+
+def save_fixation_data(participant_id, sentence_id, fixations, output_dir):
+    """Save fixation data to a JSON file"""
+    # Create participant directory if it doesn't exist
+    participant_dir = os.path.join(output_dir, participant_id)
+    os.makedirs(participant_dir, exist_ok=True)
+    
+    # Create the fixation data structure
+    fixation_data = {
+        "fixations": fixations
+    }
+    
+    # Save to JSON file
+    output_file = os.path.join(participant_dir, f"sentence_{sentence_id}.json")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(fixation_data, f)
+
+def process_participant_json(json_file, metrics_output_dir, fixations_output_dir):
     """Process a single participant's JSON file and return a DataFrame with sentence-level metrics"""
     try:
         with open(json_file, 'r', encoding='utf-8') as f:
@@ -83,6 +110,12 @@ def process_participant_json(json_file):
                     metrics[f'mean_{metric}'] = safe_mean(values)
                 
                 sentence_metrics.append(metrics)
+                
+                # Extract and save fixation sequence
+                fixations = extract_fixation_sequence(sentence)
+                if fixations:
+                    save_fixation_data(participant_id, sentence['sentence_id'], 
+                                     fixations, fixations_output_dir)
                 
             except Exception as e:
                 print(f"Error processing sentence {sentence.get('sentence_id', 'unknown')}: {str(e)}")
@@ -121,10 +154,12 @@ def calculate_participant_metrics(df):
 def main():
     # Input and output directories
     input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_extracted_task2_NR_ET"
-    output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_task2_NR_ET"
+    metrics_output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_task2_NR_ET"
+    fixations_output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/fix8_fixations"
     
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    # Create output directories if they don't exist
+    os.makedirs(metrics_output_dir, exist_ok=True)
+    os.makedirs(fixations_output_dir, exist_ok=True)
     
     # Find all JSON files
     json_files = glob(os.path.join(input_dir, "*_NR_processed.json"))
@@ -146,14 +181,14 @@ def main():
             print(f"\nProcessing participant {participant_id}...")
             
             # Process the JSON file
-            df = process_participant_json(json_file)
+            df = process_participant_json(json_file, metrics_output_dir, fixations_output_dir)
             
             if df.empty:
                 print(f"No valid data found for participant {participant_id}")
                 continue
             
             # Save sentence-level metrics to CSV
-            output_file = os.path.join(output_dir, f"{participant_id}_sentence_metrics.csv")
+            output_file = os.path.join(metrics_output_dir, f"{participant_id}_sentence_metrics.csv")
             df.to_csv(output_file, index=False)
             print(f"Saved sentence-level metrics to {output_file}")
             
@@ -172,7 +207,7 @@ def main():
     # Create and save the participant-wise metrics DataFrame
     if all_participant_metrics:
         overall_df = pd.DataFrame(all_participant_metrics)
-        overall_output_file = os.path.join(output_dir, "12_participants_wise_metrics.csv")
+        overall_output_file = os.path.join(metrics_output_dir, "12_participants_wise_metrics.csv")
         overall_df.to_csv(overall_output_file, index=False)
         print(f"\nSaved participant-wise metrics to {overall_output_file}")
         
@@ -188,7 +223,7 @@ def main():
         all_sentences_df = pd.concat(all_sentences_data, ignore_index=True)
         
         # Save the aggregated dataset
-        aggregated_output_file = os.path.join(output_dir, "all_sentences_aggregated.csv")
+        aggregated_output_file = os.path.join(metrics_output_dir, "all_sentences_aggregated.csv")
         all_sentences_df.to_csv(aggregated_output_file, index=False)
         print(f"\nSaved aggregated sentences dataset to {aggregated_output_file}")
         
@@ -212,7 +247,7 @@ def main():
         
         # Save overall metrics to a separate file
         overall_metrics_df = pd.DataFrame([overall_metrics])
-        overall_metrics_file = os.path.join(output_dir, "overall_metrics.csv")
+        overall_metrics_file = os.path.join(metrics_output_dir, "overall_metrics.csv")
         overall_metrics_df.to_csv(overall_metrics_file, index=False)
         print(f"\nSaved overall metrics to {overall_metrics_file}")
         

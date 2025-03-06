@@ -4,11 +4,8 @@ generation_outputs/
 processed_data/
 wandb/
 scripts/data/zuco/answers
-scripts/data/zuco/processed_data
-scripts/data/zuco/raw_data
 scripts/data/zuco/task_materials
 scripts/data/zuco/task1
 scripts/data/zuco/task2
 scripts/data/zuco/task3
-scripts/data/zuco/bai_processed_fixations_task2_NR_ET
 scripts/q3zws
