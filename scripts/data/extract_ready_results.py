@@ -4,19 +4,6 @@ import pandas as pd
 import numpy as np
 from glob import glob
 
-def safe_mean(values):
-    """Safely calculate mean of a list of values, handling None and non-list values"""
-    if not values:
-        return None
-    # Convert single values to list
-    if not isinstance(values, list):
-        values = [values]
-    # Filter out None values
-    valid_values = [v for v in values if v is not None]
-    if not valid_values:
-        return None
-    return np.mean(valid_values)
-
 def process_participant_json(json_file):
     """Process a single participant's JSON file and return a DataFrame with sentence-level metrics"""
     with open(json_file, 'r', encoding='utf-8') as f:
@@ -29,14 +16,6 @@ def process_participant_json(json_file):
     sentence_metrics = []
     
     for sentence in data:
-        # Extract word-level metrics safely
-        ffd_values = [word['metrics']['FFD'] for word in sentence['words']]
-        gd_values = [word['metrics']['GD'] for word in sentence['words']]
-        gpt_values = [word['metrics']['GPT'] for word in sentence['words']]
-        trt_values = [word['metrics']['TRT'] for word in sentence['words']]
-        nfix_values = [word['metrics']['nFixations'] for word in sentence['words']]
-        pupil_values = [word['metrics']['meanPupilSize'] for word in sentence['words']]
-        
         metrics = {
             'participant_id': participant_id,
             'sentence_id': sentence['sentence_id'],
@@ -50,12 +29,12 @@ def process_participant_json(json_file):
             'revisited_words': sentence['sentence_metrics']['revisited_words'],
             'regressions': sentence['sentence_metrics']['regressions'],
             'total_words': len(sentence['words']),
-            'mean_FFD': safe_mean(ffd_values),
-            'mean_GD': safe_mean(gd_values),
-            'mean_GPT': safe_mean(gpt_values),
-            'mean_TRT': safe_mean(trt_values),
-            'mean_nFixations': safe_mean(nfix_values),
-            'mean_pupil_size': safe_mean(pupil_values)
+            'mean_FFD': np.mean([word['metrics']['FFD'] for word in sentence['words'] if word['metrics']['FFD'] is not None]),
+            'mean_GD': np.mean([word['metrics']['GD'] for word in sentence['words'] if word['metrics']['GD'] is not None]),
+            'mean_GPT': np.mean([word['metrics']['GPT'] for word in sentence['words'] if word['metrics']['GPT'] is not None]),
+            'mean_TRT': np.mean([word['metrics']['TRT'] for word in sentence['words'] if word['metrics']['TRT'] is not None]),
+            'mean_nFixations': np.mean([word['metrics']['nFixations'] for word in sentence['words']]),
+            'mean_pupil_size': np.mean([word['metrics']['meanPupilSize'] for word in sentence['words'] if word['metrics']['meanPupilSize'] is not None])
         }
         sentence_metrics.append(metrics)
     
@@ -82,7 +61,7 @@ def calculate_participant_metrics(df):
 
 def main():
     # Input and output directories
-    input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_fixations_task2_NR_ET"
+    input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_extracted_task2_NR_ET"
     output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_task2_NR_ET"
     
     # Create output directory if it doesn't exist
