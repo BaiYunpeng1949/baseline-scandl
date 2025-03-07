@@ -39,12 +39,15 @@ def calculate_distances(sentence):
     """Calculate word skips and regressions based on reading sequence"""
     distances = {
         'word_sequence': [],          # Sequence of word indices in reading order
-        'skipped_words': set(),       # Words skipped during forward reading
-        'regressed_words': set(),     # Words that were regressed to
-        'skip_pairs': [],            # List of (from, to) pairs for skips
+        'skipped_words': set(),       # Words skipped during first-pass reading (for reference)
+        'regressed_words': set(),     # Words that were regressed to (for reference)
+        'skip_pairs': [],            # List of (from, to) pairs for first-pass skips
         'regression_pairs': [],      # List of (from, to) pairs for regressions
         'max_skip_distance': 0,       # Maximum skip distance
-        'max_regression_distance': 0   # Maximum regression distance
+        'max_regression_distance': 0,  # Maximum regression distance
+        'skipped_words_count': 0,     # Total number of words skipped (sum of skip distances)
+        'regressed_words_count': 0,   # Total number of regressions (count of regression pairs)
+        'skipped_then_regressed_proportion': 0.0  # Proportion of regressed words that were initially skipped
     }
     
     if 'fixation_sequence' not in sentence:
@@ -63,38 +66,55 @@ def calculate_distances(sentence):
         return distances
     
     # Initialize tracking variables
-    current_forward_pos = word_sequence[0]  # Position for tracking forward reading
-    last_word = word_sequence[0]           # Last word read
-    seen_words = {word_sequence[0]}        # Set of all words seen
+    max_word_seen = word_sequence[0]      # Tracks furthest word seen in first pass
+    current_word = word_sequence[0]       # Current word being processed
+    first_pass_words = {word_sequence[0]} # Words seen in first pass
+    seen_words = {word_sequence[0]}      # All words that have been fixated
     
     # Process the sequence
     for i in range(1, len(word_sequence)):
+        prev_word = current_word
         current_word = word_sequence[i]
         
-        if current_word > last_word:
-            # Forward reading
-            if current_word - current_forward_pos > 1:
-                # Words were skipped
-                distances['skip_pairs'].append((current_forward_pos, current_word))
-                skip_distance = current_word - current_forward_pos - 1
-                distances['max_skip_distance'] = max(distances['max_skip_distance'], skip_distance)
-                # Add skipped words
-                for skipped_idx in range(current_forward_pos + 1, current_word):
-                    distances['skipped_words'].add(skipped_idx)
-            current_forward_pos = current_word
-        elif current_word < last_word:
-            # Reading a previous word - this is a regression
-            regression_distance = last_word - current_word
-            # Only record regression if it's not a long-distance jump (threshold of 5 words)
-            if regression_distance <= 5:
-                distances['regression_pairs'].append((last_word, current_word))
-                distances['regressed_words'].add(current_word)
-                distances['max_regression_distance'] = max(distances['max_regression_distance'], regression_distance)
-            # Reset forward reading position to handle subsequent forward reading correctly
-            current_forward_pos = current_word
+        # Check if current word is in first pass (i.e., not seen before)
+        is_current_first_pass = current_word not in seen_words
         
-        last_word = current_word
+        if current_word > prev_word:
+            # Forward reading
+            if current_word - prev_word > 1:
+                # Check if this is a valid skip:
+                # 1. Both words are in first pass, or
+                # 2. Landing word (current_word) is in first pass
+                if (prev_word in first_pass_words and is_current_first_pass) or is_current_first_pass:
+                    distances['skip_pairs'].append((prev_word, current_word))
+                    skip_distance = current_word - prev_word - 1
+                    distances['max_skip_distance'] = max(distances['max_skip_distance'], skip_distance)
+                    distances['skipped_words_count'] += skip_distance  # Add the skip distance
+                    # Add skipped words (for reference)
+                    for skipped_idx in range(prev_word + 1, current_word):
+                        distances['skipped_words'].add(skipped_idx)
+            
+            # Update max_word_seen and first_pass_words
+            if current_word > max_word_seen:
+                max_word_seen = current_word
+            if is_current_first_pass:
+                first_pass_words.add(current_word)
+                
+        elif current_word < prev_word:
+            # Regression detected
+            regression_distance = prev_word - current_word
+            if regression_distance <= 5:  # Only count short-distance regressions
+                distances['regression_pairs'].append((prev_word, current_word))
+                distances['regressed_words'].add(current_word)  # for reference
+                distances['max_regression_distance'] = max(distances['max_regression_distance'], regression_distance)
+                distances['regressed_words_count'] += 1  # Increment regression count
+        
         seen_words.add(current_word)
+    
+    # Calculate proportion of regressed words that were initially skipped
+    if distances['regressed_words']:
+        skipped_and_regressed = distances['regressed_words'].intersection(distances['skipped_words'])
+        distances['skipped_then_regressed_proportion'] = len(skipped_and_regressed) / len(distances['regressed_words'])
     
     return distances
 
@@ -186,10 +206,11 @@ def process_participant_json(json_file, metrics_output_dir, fixations_output_dir
                     'regression_pairs': '; '.join([f"({a},{b})" for a, b in distances['regression_pairs']]),
                     
                     # Word-level counts and rates
-                    'skipped_words_count': len(distances['skipped_words']),
-                    'regressed_words_count': len(distances['regressed_words']),
-                    'word_skip_rate': len(distances['skipped_words']) / len(sentence['words']) if len(sentence['words']) > 0 else 0,
-                    'word_regression_rate': len(distances['regressed_words']) / len(sentence['words']) if len(sentence['words']) > 0 else 0,
+                    'skipped_words_count': distances['skipped_words_count'],
+                    'regressed_words_count': distances['regressed_words_count'],
+                    'word_skip_rate': distances['skipped_words_count'] / len(sentence['words']) if len(sentence['words']) > 0 else 0,
+                    'word_regression_rate': distances['regressed_words_count'] / len(sentence['words']) if len(sentence['words']) > 0 else 0,
+                    'skipped_then_regressed_proportion': distances['skipped_then_regressed_proportion'],
                     
                     # Maximum distances
                     'max_skip_distance': distances['max_skip_distance'],
@@ -240,7 +261,8 @@ def calculate_participant_metrics(df):
         'max_skip_distance', 'max_regression_distance',        # Distances
         'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT',        # Eye-tracking metrics
         'mean_nFixations', 'mean_meanPupilSize',
-        'sentence_length'                                      # Sentence info
+        'sentence_length',                                     # Sentence info
+        'skipped_then_regressed_proportion'                    # New proportion metric
     ]
     
     for col in metric_columns:
@@ -341,7 +363,8 @@ def main():
             'skipped_words_count', 'regressed_words_count',        # Raw counts
             'max_skip_distance', 'max_regression_distance',        # Distances
             'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT',        # Eye-tracking metrics
-            'mean_nFixations', 'mean_meanPupilSize'
+            'mean_nFixations', 'mean_meanPupilSize',
+            'skipped_then_regressed_proportion'                    # New proportion metric
         ]
         
         # Calculate means and stds for numeric columns
