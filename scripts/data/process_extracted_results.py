@@ -23,6 +23,81 @@ def safe_mean(values):
         return None
     return np.mean(valid_values)
 
+def normalize_reading_sequence(word_sequence):
+    """Normalize reading sequence to start from the first occurrence of smallest word index"""
+    if not word_sequence:
+        return []
+    
+    # Find the smallest word index
+    min_idx = min(word_sequence)
+    # Find its first occurrence
+    start_pos = word_sequence.index(min_idx)
+    # Return sequence from that position
+    return word_sequence[start_pos:]
+
+def calculate_distances(sentence):
+    """Calculate word skips and regressions based on reading sequence"""
+    distances = {
+        'word_sequence': [],          # Sequence of word indices in reading order
+        'skipped_words': set(),       # Words skipped during forward reading
+        'regressed_words': set(),     # Words that were regressed to
+        'skip_pairs': [],            # List of (from, to) pairs for skips
+        'regression_pairs': [],      # List of (from, to) pairs for regressions
+        'max_skip_distance': 0,       # Maximum skip distance
+        'max_regression_distance': 0   # Maximum regression distance
+    }
+    
+    if 'fixation_sequence' not in sentence:
+        return distances
+    
+    # Create a list of word indices in fixation order
+    raw_word_sequence = []
+    for fix in sentence['fixation_sequence']:
+        raw_word_sequence.append(fix['word_idx'])
+    
+    # Normalize the sequence to start from the first occurrence of smallest word index
+    word_sequence = normalize_reading_sequence(raw_word_sequence)
+    distances['word_sequence'] = word_sequence
+    
+    if not word_sequence:
+        return distances
+    
+    # Initialize tracking variables
+    current_forward_pos = word_sequence[0]  # Position for tracking forward reading
+    last_word = word_sequence[0]           # Last word read
+    seen_words = {word_sequence[0]}        # Set of all words seen
+    
+    # Process the sequence
+    for i in range(1, len(word_sequence)):
+        current_word = word_sequence[i]
+        
+        if current_word > last_word:
+            # Forward reading
+            if current_word - current_forward_pos > 1:
+                # Words were skipped
+                distances['skip_pairs'].append((current_forward_pos, current_word))
+                skip_distance = current_word - current_forward_pos - 1
+                distances['max_skip_distance'] = max(distances['max_skip_distance'], skip_distance)
+                # Add skipped words
+                for skipped_idx in range(current_forward_pos + 1, current_word):
+                    distances['skipped_words'].add(skipped_idx)
+            current_forward_pos = current_word
+        elif current_word < last_word:
+            # Reading a previous word - this is a regression
+            regression_distance = last_word - current_word
+            # Only record regression if it's not a long-distance jump (threshold of 5 words)
+            if regression_distance <= 5:
+                distances['regression_pairs'].append((last_word, current_word))
+                distances['regressed_words'].add(current_word)
+                distances['max_regression_distance'] = max(distances['max_regression_distance'], regression_distance)
+            # Reset forward reading position to handle subsequent forward reading correctly
+            current_forward_pos = current_word
+        
+        last_word = current_word
+        seen_words.add(current_word)
+    
+    return distances
+
 def extract_word_metrics(sentence):
     """Extract word-level metrics from a sentence"""
     metrics = {
@@ -90,20 +165,46 @@ def process_participant_json(json_file, metrics_output_dir, fixations_output_dir
                 # Extract word-level metrics
                 word_metrics = extract_word_metrics(sentence)
                 
+                # Calculate distances and sequences
+                distances = calculate_distances(sentence)
+                
                 # Calculate sentence-level metrics
                 metrics = {
+                    # Basic information
                     'participant_id': participant_id,
                     'sentence_id': sentence['sentence_id'],
                     'sentence_content': sentence['sentence_content'],
-                    'total_words': len(sentence['words']),
+                    'sentence_length': len(sentence['words']),
+                    
+                    # Word sequences and sets
+                    'word_sequence': ','.join(map(str, distances['word_sequence'])),
+                    'skipped_words': ','.join(map(str, sorted(distances['skipped_words']))),
+                    'regressed_words': ','.join(map(str, sorted(distances['regressed_words']))),
+                    
+                    # Skip and regression pairs
+                    'skip_pairs': '; '.join([f"({a},{b})" for a, b in distances['skip_pairs']]),
+                    'regression_pairs': '; '.join([f"({a},{b})" for a, b in distances['regression_pairs']]),
+                    
+                    # Word-level counts and rates
+                    'skipped_words_count': len(distances['skipped_words']),
+                    'regressed_words_count': len(distances['regressed_words']),
+                    'word_skip_rate': len(distances['skipped_words']) / len(sentence['words']) if len(sentence['words']) > 0 else 0,
+                    'word_regression_rate': len(distances['regressed_words']) / len(sentence['words']) if len(sentence['words']) > 0 else 0,
+                    
+                    # Maximum distances
+                    'max_skip_distance': distances['max_skip_distance'],
+                    'max_regression_distance': distances['max_regression_distance'],
                 }
                 
-                # Add sentence metrics
+                # Add original fixation-based metrics
                 for key, value in sentence['sentence_metrics'].items():
-                    try:
-                        metrics[key] = float(value)
-                    except (ValueError, TypeError):
-                        metrics[key] = None
+                    if key in ['omission_rate', 'regression_rate']:
+                        try:
+                            # Rename to clarify these are fixation-based
+                            new_key = 'fixation_' + key
+                            metrics[new_key] = float(value)
+                        except (ValueError, TypeError):
+                            metrics[new_key] = None
                 
                 # Add word-level mean metrics
                 for metric, values in word_metrics.items():
@@ -133,10 +234,13 @@ def calculate_participant_metrics(df):
     
     # List of metrics to calculate mean and std for
     metric_columns = [
-        'omission_rate', 'skip_rate', 'revisit_rate', 'regression_rate',
-        'total_fixations', 'skipped_words', 'revisited_words', 'regressions',
-        'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT', 'mean_nFixations',
-        'mean_meanPupilSize'
+        'fixation_omission_rate', 'fixation_regression_rate',  # Original fixation-based metrics
+        'word_skip_rate', 'word_regression_rate',              # New word-based metrics
+        'skipped_words_count', 'regressed_words_count',        # Raw counts
+        'max_skip_distance', 'max_regression_distance',        # Distances
+        'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT',        # Eye-tracking metrics
+        'mean_nFixations', 'mean_meanPupilSize',
+        'sentence_length'                                      # Sentence info
     ]
     
     for col in metric_columns:
@@ -229,21 +333,37 @@ def main():
         
         # Calculate overall metrics from the aggregated dataset
         overall_metrics = {}
+        
+        # Updated list of numeric metrics
         metric_columns = [
-            'omission_rate', 'skip_rate', 'revisit_rate', 'regression_rate',
-            'total_fixations', 'skipped_words', 'revisited_words', 'regressions',
-            'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT', 'mean_nFixations',
-            'mean_meanPupilSize'
+            'fixation_omission_rate', 'fixation_regression_rate',  # Original fixation-based metrics
+            'word_skip_rate', 'word_regression_rate',              # New word-based metrics
+            'skipped_words_count', 'regressed_words_count',        # Raw counts
+            'max_skip_distance', 'max_regression_distance',        # Distances
+            'mean_FFD', 'mean_GD', 'mean_GPT', 'mean_TRT',        # Eye-tracking metrics
+            'mean_nFixations', 'mean_meanPupilSize'
         ]
         
+        # Calculate means and stds for numeric columns
         for col in metric_columns:
             if col in all_sentences_df.columns:
-                overall_metrics[f'{col}_mean'] = all_sentences_df[col].mean()
-                overall_metrics[f'{col}_std'] = all_sentences_df[col].std()
+                try:
+                    overall_metrics[f'{col}_mean'] = all_sentences_df[col].mean()
+                    overall_metrics[f'{col}_std'] = all_sentences_df[col].std()
+                except Exception as e:
+                    print(f"Error calculating statistics for {col}: {str(e)}")
+                    overall_metrics[f'{col}_mean'] = None
+                    overall_metrics[f'{col}_std'] = None
         
         # Add metadata
         overall_metrics['total_sentences'] = len(all_sentences_df)
         overall_metrics['total_participants'] = all_sentences_df['participant_id'].nunique()
+        
+        # Add sentence length statistics
+        overall_metrics['min_sentence_length'] = all_sentences_df['sentence_length'].min()
+        overall_metrics['max_sentence_length'] = all_sentences_df['sentence_length'].max()
+        overall_metrics['mean_sentence_length'] = all_sentences_df['sentence_length'].mean()
+        overall_metrics['std_sentence_length'] = all_sentences_df['sentence_length'].std()
         
         # Save overall metrics to a separate file
         overall_metrics_df = pd.DataFrame([overall_metrics])
@@ -256,7 +376,7 @@ def main():
         print(f"Total number of sentences: {len(all_sentences_df)}")
         print(f"Number of unique participants: {all_sentences_df['participant_id'].nunique()}")
         print("\nMetrics summary:")
-        print(all_sentences_df.describe())
+        print(all_sentences_df[metric_columns].describe())
     else:
         print("\nNo valid sentences data to aggregate")
 
