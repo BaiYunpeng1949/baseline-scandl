@@ -7,6 +7,8 @@ import seaborn as sns
 from glob import glob
 from collections import defaultdict
 import string
+from scipy import stats
+import statsmodels.api as sm
 
 def clean_word(word):
     """Clean word by removing punctuation and converting to lowercase"""
@@ -109,6 +111,30 @@ def collect_word_statistics():
     print(df['pred_class'].value_counts().sort_index())
     
     return df
+
+def perform_regression_analysis(x, y, x_name, y_name):
+    """Perform detailed regression analysis including statistical tests"""
+    # Pearson correlation
+    correlation, p_value = stats.pearsonr(x, y)
+    
+    # Linear regression
+    X = sm.add_constant(x)
+    model = sm.OLS(y, X).fit()
+    
+    return {
+        'correlation': correlation,
+        'p_value': p_value,
+        'r_squared': model.rsquared,
+        'adj_r_squared': model.rsquared_adj,
+        'slope': model.params[1],
+        'intercept': model.params[0],
+        'slope_p_value': model.pvalues[1],
+        'f_statistic': model.fvalue,
+        'f_p_value': model.f_pvalue,
+        'n_observations': len(x),
+        'x_name': x_name,
+        'y_name': y_name
+    }
 
 def analyze_and_plot_relationships(df, output_dir):
     """Analyze relationships and create plots"""
@@ -368,6 +394,252 @@ def analyze_and_plot_relationships(df, output_dir):
             df['difficulty'].min(), df['difficulty'].max(), df['difficulty'].mean()))
         f.write("Predictabilities: min={:.2f}, max={:.2f}, mean={:.2f}\n".format(
             df['predictability'].min(), df['predictability'].max(), df['predictability'].mean()))
+    
+    # Perform statistical analyses for all reading effects
+    effects_analyses = []
+    
+    # 1. Length vs Skip Probability
+    length_skip = perform_regression_analysis(
+        df['length'], df['skip_probability'],
+        'Word Length', 'Skip Probability'
+    )
+    effects_analyses.append(length_skip)
+    
+    # 2. Log Frequency vs Skip Probability
+    freq_skip = perform_regression_analysis(
+        df['log_frequency'], df['skip_probability'],
+        'Log Frequency', 'Skip Probability'
+    )
+    effects_analyses.append(freq_skip)
+    
+    # 3. Difficulty vs Regression Probability
+    diff_reg = perform_regression_analysis(
+        df['difficulty'], df['regression_probability'],
+        'Word Difficulty', 'Regression Probability'
+    )
+    effects_analyses.append(diff_reg)
+    
+    # 4. Predictability vs Skip Probability
+    pred_skip = perform_regression_analysis(
+        df['predictability'], df['skip_probability'],
+        'Predictability', 'Skip Probability'
+    )
+    effects_analyses.append(pred_skip)
+    
+    # 5. Logit Predictability vs Skip Probability
+    logit_skip = perform_regression_analysis(
+        df['logit_predictability'], df['skip_probability'],
+        'Logit Predictability', 'Skip Probability'
+    )
+    effects_analyses.append(logit_skip)
+    
+    # 6. Skip Probability vs Regression Probability
+    skip_reg = perform_regression_analysis(
+        df['skip_probability'], df['regression_probability'],
+        'Skip Probability', 'Regression Probability'
+    )
+    effects_analyses.append(skip_reg)
+    
+    # Save detailed effects analyses
+    with open(os.path.join(output_dir, 'effects_analyses.txt'), 'w') as f:
+        f.write("DETAILED WORD READING EFFECTS ANALYSES\n")
+        f.write("====================================\n\n")
+        
+        f.write("STATISTICAL MEASURES EXPLAINED:\n")
+        f.write("------------------------------\n")
+        f.write("- Pearson r: Measures the strength and direction of the linear relationship between two variables.\n")
+        f.write("  Values range from -1 to +1, where:\n")
+        f.write("  • -1 indicates perfect negative correlation\n")
+        f.write("  • 0 indicates no correlation\n")
+        f.write("  • +1 indicates perfect positive correlation\n\n")
+        
+        f.write("- R-squared: The coefficient of determination, indicates how much variance in the dependent\n")
+        f.write("  variable is explained by the independent variable (percentage when multiplied by 100).\n")
+        f.write("  Values range from 0 to 1, where higher values indicate better fit.\n\n")
+        
+        f.write("- Adjusted R-squared: Similar to R-squared but adjusted for the number of predictors.\n")
+        f.write("  More suitable for comparing models with different numbers of predictors.\n\n")
+        
+        f.write("- Slope: The change in Y for a one-unit change in X. Positive values indicate that Y\n")
+        f.write("  increases as X increases; negative values indicate that Y decreases as X increases.\n\n")
+        
+        f.write("- F-statistic: Tests whether the model as a whole is statistically significant.\n")
+        f.write("  Larger values suggest stronger evidence against the null hypothesis.\n\n")
+        
+        f.write("- P-values: The probability of obtaining test results at least as extreme as the observed\n")
+        f.write("  results, assuming the null hypothesis is true. Values < 0.05 are typically\n")
+        f.write("  considered statistically significant.\n\n")
+        
+        f.write("\nANALYSIS RESULTS BY EFFECT TYPE\n")
+        f.write("============================\n")
+        
+        # Group analyses by type
+        skipping_effects = [analysis for analysis in effects_analyses 
+                          if 'Skip Probability' in analysis['y_name']]
+        regression_effects = [analysis for analysis in effects_analyses 
+                            if 'Regression Probability' in analysis['y_name']]
+        
+        # Write skipping effects
+        f.write("\nWORD SKIPPING EFFECTS\n")
+        f.write("--------------------\n")
+        for analysis in skipping_effects:
+            f.write(f"\n{analysis['x_name']} Effect on Word Skipping\n")
+            f.write("----------------------------------------\n")
+            f.write(f"Number of observations: {analysis['n_observations']}\n")
+            
+            f.write("\nCorrelation Analysis:\n")
+            f.write(f"Pearson r: {analysis['correlation']:.3f}")
+            f.write(" (Strong)" if abs(analysis['correlation']) > 0.5 else 
+                    " (Moderate)" if abs(analysis['correlation']) > 0.3 else 
+                    " (Weak)")
+            f.write("\n")
+            f.write(f"Correlation p-value: {analysis['p_value']:.6f}")
+            f.write(" ***" if analysis['p_value'] < 0.001 else 
+                    " **" if analysis['p_value'] < 0.01 else 
+                    " *" if analysis['p_value'] < 0.05 else 
+                    " (n.s.)")
+            f.write("\n")
+            
+            f.write("\nRegression Analysis:\n")
+            f.write(f"R-squared: {analysis['r_squared']:.3f}")
+            f.write(f" ({analysis['r_squared']*100:.1f}% of variance explained)\n")
+            f.write(f"Adjusted R-squared: {analysis['adj_r_squared']:.3f}\n")
+            
+            f.write(f"Slope: {analysis['slope']:.3f}")
+            f.write(" (Positive relationship)" if analysis['slope'] > 0 else 
+                    " (Negative relationship)" if analysis['slope'] < 0 else 
+                    " (No relationship)")
+            f.write("\n")
+            f.write(f"Intercept: {analysis['intercept']:.3f}")
+            f.write(f" (Predicted {analysis['y_name']} when {analysis['x_name']} = 0)\n")
+            
+            f.write(f"Slope p-value: {analysis['slope_p_value']:.6f}")
+            f.write(" ***" if analysis['slope_p_value'] < 0.001 else 
+                    " **" if analysis['slope_p_value'] < 0.01 else 
+                    " *" if analysis['slope_p_value'] < 0.05 else 
+                    " (n.s.)")
+            f.write("\n")
+            
+            f.write(f"F-statistic: {analysis['f_statistic']:.3f}\n")
+            f.write(f"F-test p-value: {analysis['f_p_value']:.6f}")
+            f.write(" ***" if analysis['f_p_value'] < 0.001 else 
+                    " **" if analysis['f_p_value'] < 0.01 else 
+                    " *" if analysis['f_p_value'] < 0.05 else 
+                    " (n.s.)")
+            
+            # Add interpretation summary
+            f.write("\n\nKey Findings:\n")
+            f.write("------------\n")
+            # Correlation interpretation
+            f.write("1. Relationship strength: ")
+            if abs(analysis['correlation']) > 0.5:
+                f.write("Strong ")
+            elif abs(analysis['correlation']) > 0.3:
+                f.write("Moderate ")
+            else:
+                f.write("Weak ")
+            f.write("correlation between variables")
+            f.write(" (statistically significant)" if analysis['p_value'] < 0.05 else " (not statistically significant)")
+            f.write("\n")
+            
+            # Effect size interpretation
+            f.write(f"2. Effect size: {analysis['r_squared']*100:.1f}% of the variation in {analysis['y_name']}\n")
+            f.write(f"   can be explained by {analysis['x_name']}\n")
+            
+            # Direction interpretation
+            f.write("3. Direction: ")
+            if analysis['slope'] > 0:
+                f.write(f"As {analysis['x_name']} increases, {analysis['y_name']} tends to increase\n")
+            elif analysis['slope'] < 0:
+                f.write(f"As {analysis['x_name']} increases, {analysis['y_name']} tends to decrease\n")
+            else:
+                f.write("No clear directional relationship\n")
+            
+            f.write("\n" + "="*50 + "\n")
+        
+        # Write regression effects
+        f.write("\nWORD REGRESSION EFFECTS\n")
+        f.write("----------------------\n")
+        for analysis in regression_effects:
+            f.write(f"\n{analysis['x_name']} Effect on Word Regression\n")
+            f.write("----------------------------------------\n")
+            f.write(f"Number of observations: {analysis['n_observations']}\n")
+            
+            f.write("\nCorrelation Analysis:\n")
+            f.write(f"Pearson r: {analysis['correlation']:.3f}")
+            f.write(" (Strong)" if abs(analysis['correlation']) > 0.5 else 
+                    " (Moderate)" if abs(analysis['correlation']) > 0.3 else 
+                    " (Weak)")
+            f.write("\n")
+            f.write(f"Correlation p-value: {analysis['p_value']:.6f}")
+            f.write(" ***" if analysis['p_value'] < 0.001 else 
+                    " **" if analysis['p_value'] < 0.01 else 
+                    " *" if analysis['p_value'] < 0.05 else 
+                    " (n.s.)")
+            f.write("\n")
+            
+            f.write("\nRegression Analysis:\n")
+            f.write(f"R-squared: {analysis['r_squared']:.3f}")
+            f.write(f" ({analysis['r_squared']*100:.1f}% of variance explained)\n")
+            f.write(f"Adjusted R-squared: {analysis['adj_r_squared']:.3f}\n")
+            
+            f.write(f"Slope: {analysis['slope']:.3f}")
+            f.write(" (Positive relationship)" if analysis['slope'] > 0 else 
+                    " (Negative relationship)" if analysis['slope'] < 0 else 
+                    " (No relationship)")
+            f.write("\n")
+            f.write(f"Intercept: {analysis['intercept']:.3f}")
+            f.write(f" (Predicted {analysis['y_name']} when {analysis['x_name']} = 0)\n")
+            
+            f.write(f"Slope p-value: {analysis['slope_p_value']:.6f}")
+            f.write(" ***" if analysis['slope_p_value'] < 0.001 else 
+                    " **" if analysis['slope_p_value'] < 0.01 else 
+                    " *" if analysis['slope_p_value'] < 0.05 else 
+                    " (n.s.)")
+            f.write("\n")
+            
+            f.write(f"F-statistic: {analysis['f_statistic']:.3f}\n")
+            f.write(f"F-test p-value: {analysis['f_p_value']:.6f}")
+            f.write(" ***" if analysis['f_p_value'] < 0.001 else 
+                    " **" if analysis['f_p_value'] < 0.01 else 
+                    " *" if analysis['f_p_value'] < 0.05 else 
+                    " (n.s.)")
+            
+            # Add interpretation summary
+            f.write("\n\nKey Findings:\n")
+            f.write("------------\n")
+            # Correlation interpretation
+            f.write("1. Relationship strength: ")
+            if abs(analysis['correlation']) > 0.5:
+                f.write("Strong ")
+            elif abs(analysis['correlation']) > 0.3:
+                f.write("Moderate ")
+            else:
+                f.write("Weak ")
+            f.write("correlation between variables")
+            f.write(" (statistically significant)" if analysis['p_value'] < 0.05 else " (not statistically significant)")
+            f.write("\n")
+            
+            # Effect size interpretation
+            f.write(f"2. Effect size: {analysis['r_squared']*100:.1f}% of the variation in {analysis['y_name']}\n")
+            f.write(f"   can be explained by {analysis['x_name']}\n")
+            
+            # Direction interpretation
+            f.write("3. Direction: ")
+            if analysis['slope'] > 0:
+                f.write(f"As {analysis['x_name']} increases, {analysis['y_name']} tends to increase\n")
+            elif analysis['slope'] < 0:
+                f.write(f"As {analysis['x_name']} increases, {analysis['y_name']} tends to decrease\n")
+            else:
+                f.write("No clear directional relationship\n")
+            
+            f.write("\n" + "="*50 + "\n")
+        
+        f.write("\nSignificance levels:\n")
+        f.write("*** p < 0.001 (Strong evidence)\n")
+        f.write("** p < 0.01 (Very good evidence)\n")
+        f.write("* p < 0.05 (Good evidence)\n")
+        f.write("n.s. = not significant (p ≥ 0.05, Insufficient evidence)\n")
     
     return summary_stats
 
