@@ -374,5 +374,99 @@ If you are using ScanDL, please consider citing our work:
 As indicated in the paper, our code is based on the [implementation](https://github.com/Shark-NLP/DiffuSeq) of [DiffuSeq](
 https://doi.org/10.48550/arXiv.2210.08933).
 
+# Data Processing Scripts
+
+This directory contains scripts for processing and analyzing reading behavior data.
+
+## Scripts Overview
+
+### Data Processing Pipeline
+
+1. `create_word_frequencies.py`: Processes SUBTLEX dataset to create word frequency information
+   - Calculates frequency per million and log frequency
+   - Handles data cleaning and validation
+   - Output: `word_frequencies.json`
+
+2. `create_word_predictabilities.py`: Calculates word predictability using NLTK language model
+   - Uses Brown corpus for training a trigram model with Kneser-Ney smoothing
+   - Calculates raw predictability scores (0-1)
+   - Calculates logit predictability: 0.5 * ln(pred/(1-pred))
+   - Handles edge cases:
+     - For pred=0: uses 1/(2*83)
+     - For pred=1: uses (2*83-1)/(2*83)
+     - where 83 is the number of complete predictability protocols
+   - Output: `word_predictabilities.json`
+
+3. `analyze_reading_patterns.py`: Analyzes reading behavior for each participant
+   - Processes fixation sequences
+   - Identifies word skipping and regression patterns
+   - Combines frequency, predictability, and eye-tracking metrics
+   - Output: Individual JSON files per participant in `bai_reading_pattern_analysis/`
+
+4. `analyze_word_probabilities.py`: Generates statistical analysis and visualizations
+   - Calculates word-level statistics
+   - Creates visualization plots for:
+     - Word length effects
+     - Frequency effects
+     - Predictability effects
+     - Logit predictability distribution and regression analysis
+     - Predictability class analysis (5 classes based on logit values)
+   - Output: Analysis files and plots in `bai_word_probability_analysis/`
+
+## Output Files
+
+### Word Features
+- `word_frequencies.json`: Word frequency data from SUBTLEX
+- `word_predictabilities.json`: Word predictability scores and logit transformations
+
+### Analysis Results
+- `complete_word_analysis.csv`: Full dataset with all metrics
+- `word_skipping_analysis.csv`: Detailed skipping behavior analysis
+- `word_regression_analysis.csv`: Detailed regression behavior analysis
+- `analysis_summary.txt`: Statistical summary of all analyses
+
+### Visualization Plots
+- `length_skip_effect.png`: Word length effect on skipping
+- `frequency_skip_effect.png`: Word frequency effect on skipping
+- `predictability_skip_effect.png`: Word predictability effect on skipping
+- `logit_predictability_distribution.png`: Logit predictability regression analysis
+- `logit_predictability_histogram.png`: Distribution of logit predictability values
+- `pred_class_skip_effect.png`: Skipping probability by predictability class
+- `difficulty_regression_effect.png`: Word difficulty effect on regression
+
+## Predictability Classes
+
+Words are categorized into five logit-based predictability classes:
+1. Class 1: -2.553 to -1.5
+2. Class 2: -1.5 to -1.0
+3. Class 3: -1.0 to -0.5
+4. Class 4: -0.5 to 0
+5. Class 5: 0 to 2.553
+
+## Usage
+
+1. Run scripts in order:
+```bash
+python create_word_frequencies.py
+python create_word_predictabilities.py
+python analyze_reading_patterns.py
+python analyze_word_probabilities.py
+```
+
+2. Check output directories for results:
+- `/scripts/data/` for JSON files
+- `/scripts/data/zuco/bai_reading_pattern_analysis/` for per-participant analysis
+- `/scripts/data/zuco/bai_word_probability_analysis/` for statistical analysis and plots
+
+## Dependencies
+
+- Python 3.6+
+- numpy
+- pandas
+- matplotlib
+- seaborn
+- nltk
+- tqdm
+
 
 

@@ -27,6 +27,8 @@ def collect_word_statistics():
         'frequency': 0,
         'log_frequency': 0,
         'difficulty': 0,
+        'predictability': 0,
+        'logit_predictability': 0,
         'original_forms': set()  # Track original forms of the word
     })
     
@@ -61,6 +63,8 @@ def collect_word_statistics():
                         word_stats[clean_word_text]['frequency'] += word_info['frequency_per_million']
                         word_stats[clean_word_text]['log_frequency'] += word_info['log_frequency']
                         word_stats[clean_word_text]['difficulty'] += word_info['difficulty']
+                        word_stats[clean_word_text]['predictability'] += word_info['predictability']
+                        word_stats[clean_word_text]['logit_predictability'] += word_info['logit_predictability']
                         word_stats[clean_word_text]['original_forms'].add(original_word)
         
         except Exception as e:
@@ -79,6 +83,8 @@ def collect_word_statistics():
                 'frequency': stats['frequency'] / n,
                 'log_frequency': stats['log_frequency'] / n,
                 'difficulty': stats['difficulty'] / n,
+                'predictability': stats['predictability'] / n,
+                'logit_predictability': stats['logit_predictability'] / n,
                 'skip_probability': stats['skip_count'] / n,
                 'regression_probability': stats['regression_count'] / n,
                 'total_occurrences': n
@@ -86,10 +92,21 @@ def collect_word_statistics():
     
     df = pd.DataFrame(word_data)
     
+    # Ensure predictability is between 0 and 1
+    df['predictability'] = df['predictability'].clip(0, 1)
+    
+    # Add predictability class based on logit values
+    df['pred_class'] = pd.cut(df['logit_predictability'],
+                             bins=[-np.inf, -1.5, -1.0, -0.5, 0, np.inf],
+                             labels=['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'])
+    
     # Print some basic statistics
     print(f"\nProcessed {len(word_stats)} unique words")
     print(f"Found {sum(stats['skip_count'] for stats in word_stats.values())} total skips")
     print(f"Found {sum(stats['regression_count'] for stats in word_stats.values())} total regressions")
+    print(f"Average predictability: {df['predictability'].mean():.3f}")
+    print("\nPredictability class distribution:")
+    print(df['pred_class'].value_counts().sort_index())
     
     return df
 
@@ -179,12 +196,93 @@ def analyze_and_plot_relationships(df, output_dir):
                 dpi=300, bbox_inches='tight')
     plt.close()
     
+    # 4. Word Predictability Effect on Skipping
+    plt.figure()
+    sns.scatterplot(data=df, x='predictability', y='skip_probability', 
+                    size='total_occurrences', sizes=(20, 200),
+                    alpha=0.3, legend='brief')
+    sns.regplot(data=df, x='predictability', y='skip_probability', 
+                scatter=False,
+                line_kws={'linewidth': 2, 'color': 'red'},
+                ci=95)
+    
+    # Add correlation coefficient
+    corr = df['predictability'].corr(df['skip_probability'])
+    plt.text(0.05, 0.95, f'r = {corr:.3f}', 
+             transform=plt.gca().transAxes, fontsize=12)
+    
+    plt.title('Word Predictability Effect on Skipping Probability')
+    plt.xlabel('Word Predictability')
+    plt.ylabel('Skipping Probability')
+    plt.savefig(os.path.join(output_dir, 'predictability_skip_effect.png'), 
+                dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Add new plot for logit predictability distribution and regression
+    plt.figure(figsize=(12, 8))
+    
+    # Create main scatter plot with size based on occurrences
+    sns.scatterplot(data=df, x='logit_predictability', y='skip_probability',
+                    size='total_occurrences', sizes=(20, 200),
+                    alpha=0.3, legend='brief')
+    
+    # Add regression line with confidence band
+    sns.regplot(data=df, x='logit_predictability', y='skip_probability',
+                scatter=False,
+                line_kws={'linewidth': 2, 'color': 'red'},
+                ci=95)
+    
+    # Add vertical lines for class boundaries
+    plt.axvline(x=-1.5, color='r', linestyle='--', alpha=0.5, label='Class boundaries')
+    plt.axvline(x=-1.0, color='r', linestyle='--', alpha=0.5)
+    plt.axvline(x=-0.5, color='r', linestyle='--', alpha=0.5)
+    plt.axvline(x=0, color='r', linestyle='--', alpha=0.5)
+    
+    # Add correlation coefficient
+    corr = df['logit_predictability'].corr(df['skip_probability'])
+    plt.text(0.05, 0.95, f'r = {corr:.3f}', 
+             transform=plt.gca().transAxes, fontsize=12)
+    
+    plt.title('Logit Predictability Effect on Skipping Probability')
+    plt.xlabel('Logit Predictability')
+    plt.ylabel('Skip Probability')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'logit_predictability_distribution.png'),
+                dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Add distribution histogram as a separate plot
+    plt.figure(figsize=(12, 8))
+    sns.histplot(data=df, x='logit_predictability', bins=30)
+    plt.axvline(x=-1.5, color='r', linestyle='--', alpha=0.5, label='Class boundaries')
+    plt.axvline(x=-1.0, color='r', linestyle='--', alpha=0.5)
+    plt.axvline(x=-0.5, color='r', linestyle='--', alpha=0.5)
+    plt.axvline(x=0, color='r', linestyle='--', alpha=0.5)
+    
+    plt.title('Distribution of Logit Predictability Values')
+    plt.xlabel('Logit Predictability')
+    plt.ylabel('Count')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'logit_predictability_histogram.png'),
+                dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Add class-based skipping analysis
+    plt.figure(figsize=(12, 8))
+    sns.boxplot(data=df, x='pred_class', y='skip_probability')
+    plt.title('Skipping Probability by Predictability Class')
+    plt.xlabel('Predictability Class')
+    plt.ylabel('Skipping Probability')
+    plt.savefig(os.path.join(output_dir, 'pred_class_skip_effect.png'),
+                dpi=300, bbox_inches='tight')
+    plt.close()
+    
     # Save detailed CSV files with more information
     
     # 1. Skipping analysis
     skip_analysis = df[[
         'word', 'original_forms', 'length', 'frequency', 'log_frequency', 
-        'skip_probability', 'total_occurrences'
+        'predictability', 'skip_probability', 'total_occurrences'
     ]].sort_values('skip_probability', ascending=False)
     skip_analysis.to_csv(os.path.join(output_dir, 'word_skipping_analysis.csv'), index=False)
     
@@ -204,7 +302,8 @@ def analyze_and_plot_relationships(df, output_dir):
             'mean_probability': df['skip_probability'].mean(),
             'std_probability': df['skip_probability'].std(),
             'correlation_with_length': df['skip_probability'].corr(df['length']),
-            'correlation_with_log_freq': df['skip_probability'].corr(df['log_frequency'])
+            'correlation_with_log_freq': df['skip_probability'].corr(df['log_frequency']),
+            'correlation_with_predictability': df['skip_probability'].corr(df['predictability'])
         },
         'regression': {
             'mean_probability': df['regression_probability'].mean(),
@@ -220,7 +319,8 @@ def analyze_and_plot_relationships(df, output_dir):
         f.write(f"Mean skip probability: {summary_stats['skipping']['mean_probability']:.3f}\n")
         f.write(f"Std skip probability: {summary_stats['skipping']['std_probability']:.3f}\n")
         f.write(f"Correlation with length: {summary_stats['skipping']['correlation_with_length']:.3f}\n")
-        f.write(f"Correlation with log frequency: {summary_stats['skipping']['correlation_with_log_freq']:.3f}\n\n")
+        f.write(f"Correlation with log frequency: {summary_stats['skipping']['correlation_with_log_freq']:.3f}\n")
+        f.write(f"Correlation with predictability: {summary_stats['skipping']['correlation_with_predictability']:.3f}\n\n")
         
         f.write("Word Regression Analysis:\n")
         f.write(f"Mean regression probability: {summary_stats['regression']['mean_probability']:.3f}\n")
@@ -235,13 +335,15 @@ def analyze_and_plot_relationships(df, output_dir):
             df['log_frequency'].min(), df['log_frequency'].max(), df['log_frequency'].mean()))
         f.write("Difficulties: min={:.2f}, max={:.2f}, mean={:.2f}\n".format(
             df['difficulty'].min(), df['difficulty'].max(), df['difficulty'].mean()))
+        f.write("Predictabilities: min={:.2f}, max={:.2f}, mean={:.2f}\n".format(
+            df['predictability'].min(), df['predictability'].max(), df['predictability'].mean()))
     
     return summary_stats
 
 def main():
     # Set up directories
     output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_word_probability_analysis"
-    plots_dir = os.path.join(output_dir, "plots")
+    plots_dir = output_dir
     os.makedirs(plots_dir, exist_ok=True)
     
     # Collect word statistics

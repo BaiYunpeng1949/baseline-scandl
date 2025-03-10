@@ -4,6 +4,7 @@ Mean skip probability: 0.298
 Std skip probability: 0.200
 Correlation with length: -0.466
 Correlation with log frequency: 0.228
+Correlation with predictability: 0.059
 
 Word Regression Analysis:
 Mean regression probability: 0.158
@@ -14,3 +15,4 @@ Distribution Statistics:
 Word Lengths: min=0, max=25, mean=6.4
 Log Frequencies: min=-1.70, max=4.60, mean=0.88
 Difficulties: min=0.58, max=1.15, mean=0.92
+Predictabilities: min=0.00, max=0.95, mean=0.01

@@ -32,7 +32,7 @@ def normalize_reading_sequence(word_sequence):
     # Return sequence from that position
     return word_sequence[start_pos:]
 
-def analyze_sentence_reading_patterns(sentence, word_frequencies):
+def analyze_sentence_reading_patterns(sentence, word_frequencies, word_predictabilities):
     """Analyze reading patterns for a single sentence"""
     # First, get the fixation sequence
     fixation_sequence = []
@@ -85,9 +85,14 @@ def analyze_sentence_reading_patterns(sentence, word_frequencies):
         
         seen_words.add(current_word)
     
+    # Get predictability data for this sentence
+    sentence_predictabilities = word_predictabilities.get(str(sentence['sentence_id']), {})
+    word_preds = sentence_predictabilities.get('word_predictabilities', [])
+    word_logit_preds = sentence_predictabilities.get('word_logit_predictabilities', [])
+    
     # Analyze each word
     analyzed_words = []
-    for word_info in sentence['words']:
+    for word_idx, word_info in enumerate(sentence['words']):
         # Get original and cleaned word text
         original_word = word_info['content']
         word_text = clean_word(original_word)
@@ -99,6 +104,10 @@ def analyze_sentence_reading_patterns(sentence, word_frequencies):
             'log_freq_per_million': 0.0
         })
         
+        # Get word predictability and logit predictability
+        predictability = word_preds[word_idx] if word_idx < len(word_preds) else 0.0
+        logit_predictability = word_logit_preds[word_idx] if word_idx < len(word_logit_preds) else -2.553  # Default to lowest class
+        
         # Calculate word features
         analyzed_word = {
             'word': original_word,  # Keep original word for reference
@@ -108,7 +117,8 @@ def analyze_sentence_reading_patterns(sentence, word_frequencies):
             'frequency_per_million': freq_info.get('freq_per_million', 1.0),
             'log_frequency': freq_info.get('log_freq_per_million', 0.0),
             'difficulty': calculate_word_difficulty(freq_info.get('freq_per_million', 1.0)),
-            'predictability': 0.0,  # Placeholder for future LLM-based prediction
+            'predictability': predictability,  # Raw predictability
+            'logit_predictability': logit_predictability,  # Logit transformed predictability
             
             # Reading behavior
             'is_first_pass_skip': word_idx in skipped_words,
@@ -129,11 +139,15 @@ def analyze_sentence_reading_patterns(sentence, word_frequencies):
         'words': analyzed_words
     }
 
-def process_participant_data(input_file, word_frequencies_file, output_file):
+def process_participant_data(input_file, word_frequencies_file, word_predictabilities_file, output_file):
     """Process a single participant's data"""
     # Load word frequencies
     with open(word_frequencies_file, 'r', encoding='utf-8') as f:
         word_frequencies = json.load(f)
+    
+    # Load word predictabilities
+    with open(word_predictabilities_file, 'r', encoding='utf-8') as f:
+        word_predictabilities = json.load(f)
     
     # Load participant data
     with open(input_file, 'r', encoding='utf-8') as f:
@@ -143,7 +157,7 @@ def process_participant_data(input_file, word_frequencies_file, output_file):
     analyzed_sentences = []
     for sentence in sentences:
         try:
-            analyzed = analyze_sentence_reading_patterns(sentence, word_frequencies)
+            analyzed = analyze_sentence_reading_patterns(sentence, word_frequencies, word_predictabilities)
             analyzed_sentences.append(analyzed)
         except Exception as e:
             print(f"Error processing sentence {sentence.get('sentence_id', 'unknown')}: {str(e)}")
@@ -158,6 +172,7 @@ def main():
     input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_extracted_task2_NR_ET"
     output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_reading_pattern_analysis"
     word_frequencies_file = "/home/baiy4/ScanDL/scripts/data/word_frequencies.json"
+    word_predictabilities_file = "/home/baiy4/ScanDL/scripts/data/word_predictabilities.json"
     
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -169,7 +184,7 @@ def main():
             output_file = os.path.join(output_dir, f"{participant_id}_reading_patterns.json")
             
             print(f"Processing participant {participant_id}...")
-            process_participant_data(input_file, word_frequencies_file, output_file)
+            process_participant_data(input_file, word_frequencies_file, word_predictabilities_file, output_file)
             print(f"Completed processing {participant_id}")
             
             # Print some statistics from the first file
@@ -185,10 +200,16 @@ def main():
                         sum(1 for word in sent['words'] if word['is_regression_target'])
                         for sent in data
                     )
+                    avg_predictability = np.mean([
+                        word['predictability']
+                        for sent in data
+                        for word in sent['words']
+                    ])
                     print(f"\nExample statistics for {participant_id}:")
                     print(f"Total words: {total_words}")
                     print(f"First-pass skipped words: {skipped_words} ({skipped_words/total_words*100:.1f}%)")
                     print(f"Regression targets: {regressed_words} ({regressed_words/total_words*100:.1f}%)")
+                    print(f"Average word predictability: {avg_predictability:.3f}")
         
         except Exception as e:
             print(f"Error processing {input_file}: {str(e)}")
