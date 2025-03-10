@@ -277,6 +277,37 @@ def analyze_and_plot_relationships(df, output_dir):
                 dpi=300, bbox_inches='tight')
     plt.close()
     
+    # Add skip-regression relationship analysis
+    plt.figure(figsize=(12, 8))
+    
+    # Create scatter plot with size based on occurrences
+    sns.scatterplot(data=df, x='skip_probability', y='regression_probability',
+                    size='total_occurrences', sizes=(20, 200),
+                    alpha=0.3, legend='brief')
+    
+    # Add regression line with confidence band
+    sns.regplot(data=df, x='skip_probability', y='regression_probability',
+                scatter=False,
+                line_kws={'linewidth': 2, 'color': 'red'},
+                ci=95)
+    
+    # Add correlation coefficient
+    corr = df['skip_probability'].corr(df['regression_probability'])
+    plt.text(0.05, 0.95, f'r = {corr:.3f}', 
+             transform=plt.gca().transAxes, fontsize=12)
+    
+    # Add mean lines
+    plt.axvline(x=df['skip_probability'].mean(), color='blue', linestyle='--', alpha=0.3, label='Mean skip prob.')
+    plt.axhline(y=df['regression_probability'].mean(), color='green', linestyle='--', alpha=0.3, label='Mean regression prob.')
+    
+    plt.title('Relationship between Word Skipping and Regression Probabilities')
+    plt.xlabel('Skipping Probability')
+    plt.ylabel('Regression Probability')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'skip_regression_relationship.png'),
+                dpi=300, bbox_inches='tight')
+    plt.close()
+    
     # Save detailed CSV files with more information
     
     # 1. Skipping analysis
