@@ -280,7 +280,7 @@ def calculate_participant_metrics(df):
 def main():
     # Input and output directories
     input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_extracted_task2_NR_ET"
-    metrics_output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_task2_NR_ET"
+    metrics_output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_processed_task2_NR_ET_aggregated_metrics"
     fixations_output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/fix8_fixations"
     
     # Create output directories if they don't exist
@@ -378,9 +378,46 @@ def main():
                     overall_metrics[f'{col}_mean'] = None
                     overall_metrics[f'{col}_std'] = None
         
+        # Calculate mean skip and regression distances
+        total_skip_distance = 0
+        total_skips = 0
+        total_regression_distance = 0
+        total_regressions = 0
+        
+        for _, row in all_sentences_df.iterrows():
+            # Process skip pairs
+            if row['skip_pairs']:
+                pairs = row['skip_pairs'].split(';')
+                for pair in pairs:
+                    try:
+                        # Extract numbers from format "(a,b)"
+                        a, b = map(int, pair.strip('()').split(','))
+                        total_skip_distance += b - a - 1  # Distance is number of words skipped
+                        total_skips += 1
+                    except:
+                        continue
+            
+            # Process regression pairs
+            if row['regression_pairs']:
+                pairs = row['regression_pairs'].split(';')
+                for pair in pairs:
+                    try:
+                        # Extract numbers from format "(a,b)"
+                        a, b = map(int, pair.strip('()').split(','))
+                        total_regression_distance += a - b  # Distance is how far back the regression went
+                        total_regressions += 1
+                    except:
+                        continue
+        
+        # Add mean distances to overall metrics
+        overall_metrics['mean_skip_distance'] = total_skip_distance / total_skips if total_skips > 0 else 0
+        overall_metrics['mean_regression_distance'] = total_regression_distance / total_regressions if total_regressions > 0 else 0
+        
         # Add metadata
         overall_metrics['total_sentences'] = len(all_sentences_df)
         overall_metrics['total_participants'] = all_sentences_df['participant_id'].nunique()
+        overall_metrics['total_skips'] = total_skips
+        overall_metrics['total_regressions'] = total_regressions
         
         # Add sentence length statistics
         overall_metrics['min_sentence_length'] = all_sentences_df['sentence_length'].min()
