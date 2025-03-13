@@ -1,7 +1,6 @@
 import json
 import os
 import numpy as np
-from glob import glob
 from tqdm import tqdm
 import nltk
 from nltk.lm.preprocessing import padded_everygram_pipeline
@@ -37,12 +36,13 @@ def train_language_model():
     print(f"Model trained on {len(sentences)} sentences")
     return model
 
-def calculate_word_predictability(model, sentence, word_index):
+def calculate_word_predictability(model, words, word_index):
     """
-    Calculate predictability of a word given its preceding context
+    Calculate predictability of a word given all preceding words in the sentence
     Returns probability between 0 and 1
     """
-    words = sentence.lower().split()
+    # Convert all words to lowercase
+    words = [w.lower() for w in words]
     target_word = words[word_index]
     
     if word_index == 0:
@@ -52,8 +52,8 @@ def calculate_word_predictability(model, sentence, word_index):
         except:
             prob = 0.0001  # small default probability
     else:
-        # Use previous words as context (up to 2 words)
-        context = words[max(0, word_index-2):word_index]
+        # Use all previous words as context
+        context = words[:word_index]
         try:
             prob = model.score(target_word, context)
         except:
@@ -61,7 +61,7 @@ def calculate_word_predictability(model, sentence, word_index):
     
     # Ensure probability is between 0 and 1
     prob = max(0.0001, min(0.9999, prob))  # Clip to avoid log(0) or log(1)
-    return float(prob)  # Return raw probability
+    return float(prob)
 
 def calculate_logit_predictability(pred):
     """
@@ -84,26 +84,29 @@ def calculate_logit_predictability(pred):
     return float(logit)
 
 def process_sentences(sentences, model):
-    """Process a list of sentences to get word predictabilities"""
+    """Process sentences to get word predictabilities"""
     all_predictabilities = {}
     
-    for sentence in tqdm(sentences, desc="Processing sentences"):
-        sentence_id = sentence['sentence_id']
-        sentence_content = sentence['sentence_content']
-        words = sentence_content.split()
+    for sentence_id, sentence_data in tqdm(sentences.items(), desc="Processing sentences"):
+        words = sentence_data['words']
+        word_indices = sentence_data['word_indices']
         
         # Calculate predictability for each word
         word_predictabilities = []
         word_logit_predictabilities = []
+        
         for i in range(len(words)):
-            pred = calculate_word_predictability(model, sentence_content, i)  # Now returns raw probability
+            # Calculate probability given all preceding words
+            pred = calculate_word_predictability(model, words, i)
             logit_pred = calculate_logit_predictability(pred)
             word_predictabilities.append(float(pred))
             word_logit_predictabilities.append(float(logit_pred))
         
-        # Store results with sentence ID as string key
-        all_predictabilities[str(sentence_id)] = {
-            'sentence': sentence_content,
+        # Store results
+        all_predictabilities[sentence_id] = {
+            'sentence': sentence_data['sentence_content'],
+            'words': words,
+            'word_indices': word_indices,
             'word_predictabilities': word_predictabilities,
             'word_logit_predictabilities': word_logit_predictabilities
         }
@@ -112,7 +115,7 @@ def process_sentences(sentences, model):
 
 def main():
     # Setup paths
-    input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_extracted_task2_NR_ET"
+    input_file = "/home/baiy4/ScanDL/scripts/data/raw_sentences.json"
     output_file = "/home/baiy4/ScanDL/scripts/data/word_predictabilities.json"
     
     # Download NLTK data and train model
@@ -120,12 +123,10 @@ def main():
     download_nltk_data()
     model = train_language_model()
     
-    # Get first participant file for sentences
-    first_file = glob(os.path.join(input_dir, "*_NR_processed.json"))[0]
-    print(f"Reading sentences from {first_file}")
-    
+    # Read raw sentences
+    print(f"Reading sentences from {input_file}")
     try:
-        with open(first_file, 'r', encoding='utf-8') as f:
+        with open(input_file, 'r', encoding='utf-8') as f:
             sentences = json.load(f)
             
         # Process sentences
@@ -135,7 +136,7 @@ def main():
         # Validate results
         print("\nValidating results...")
         total_sentences = len(predictabilities)
-        total_words = sum(len(sent['word_predictabilities']) for sent in predictabilities.values())
+        total_words = sum(len(sent['words']) for sent in predictabilities.values())
         avg_predictability = np.mean([
             np.mean(sent['word_predictabilities'])
             for sent in predictabilities.values()
@@ -149,7 +150,7 @@ def main():
         # Print example
         print("\nExample predictabilities for first sentence:")
         first_sent = list(predictabilities.values())[0]
-        words = first_sent['sentence'].split()
+        words = first_sent['words']
         preds = first_sent['word_predictabilities']
         for word, pred in zip(words, preds):
             print(f"{word}: {pred:.3f}")
