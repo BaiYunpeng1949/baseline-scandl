@@ -17,10 +17,11 @@ def clean_word(word):
     return word
 
 def collect_word_statistics():
-    """Collect statistics for each unique word across all participants and trials"""
+    """Collect statistics for each unique word occurrence across all participants and trials"""
     input_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_reading_pattern_analysis"
     
     # Dictionary to store word statistics
+    # Key will be (sentence_id, word_id, word) to track unique occurrences
     word_stats = defaultdict(lambda: {
         'total_occurrences': 0,
         'skip_count': 0,
@@ -31,7 +32,10 @@ def collect_word_statistics():
         'difficulty': 0,
         'predictability': 0,
         'logit_predictability': 0,
-        'original_forms': set()  # Track original forms of the word
+        'original_word': '',  # Original word with punctuation
+        'word_clean': '',  # Cleaned word
+        'sentence': '',  # Full sentence
+        'position': 0  # Word position in sentence
     })
     
     # Process each participant's data
@@ -50,24 +54,34 @@ def collect_word_statistics():
                     if 'words' not in sentence or not sentence['words']:
                         continue
                         
-                    for word_info in sentence['words']:
+                    sentence_id = sentence.get('sentence_id', '')
+                    sentence_text = sentence.get('sentence', '')
+                        
+                    for word_idx, word_info in enumerate(sentence['words']):
                         # Get original and cleaned word
                         original_word = word_info['word']  # Original word with punctuation
                         clean_word_text = word_info['word_clean']  # Already cleaned word
+                        word_id = word_info.get('word_id', '')
+                        
+                        # Create unique key for this word occurrence
+                        word_key = (str(sentence_id), str(word_id), clean_word_text)
                         
                         # Update counts
-                        word_stats[clean_word_text]['total_occurrences'] += 1
-                        word_stats[clean_word_text]['skip_count'] += 1 if word_info['is_first_pass_skip'] else 0
-                        word_stats[clean_word_text]['regression_count'] += 1 if word_info['is_regression_target'] else 0
+                        word_stats[word_key]['total_occurrences'] += 1
+                        word_stats[word_key]['skip_count'] += 1 if word_info['is_first_pass_skip'] else 0
+                        word_stats[word_key]['regression_count'] += 1 if word_info['is_regression_target'] else 0
                         
                         # Update features (will average later)
-                        word_stats[clean_word_text]['length'] = len(clean_word_text)  # No need to average length
-                        word_stats[clean_word_text]['frequency'] += word_info['frequency_per_million']
-                        word_stats[clean_word_text]['log_frequency'] += word_info['log_frequency']
-                        word_stats[clean_word_text]['difficulty'] += word_info['difficulty']
-                        word_stats[clean_word_text]['predictability'] += word_info['predictability']
-                        word_stats[clean_word_text]['logit_predictability'] += word_info['logit_predictability']
-                        word_stats[clean_word_text]['original_forms'].add(original_word)
+                        word_stats[word_key]['length'] = len(clean_word_text)
+                        word_stats[word_key]['frequency'] += word_info['frequency_per_million']
+                        word_stats[word_key]['log_frequency'] += word_info['log_frequency']
+                        word_stats[word_key]['difficulty'] += word_info['difficulty']
+                        word_stats[word_key]['predictability'] += word_info['predictability']
+                        word_stats[word_key]['logit_predictability'] += word_info['logit_predictability']
+                        word_stats[word_key]['original_word'] = original_word
+                        word_stats[word_key]['word_clean'] = clean_word_text
+                        word_stats[word_key]['sentence'] = sentence_text
+                        word_stats[word_key]['position'] = word_idx
         
         except Exception as e:
             print(f"Error processing file {file_path}: {str(e)}")
@@ -75,12 +89,16 @@ def collect_word_statistics():
     
     # Calculate averages and probabilities
     word_data = []
-    for word, stats in word_stats.items():
+    for (sentence_id, word_id, word), stats in word_stats.items():
         n = stats['total_occurrences']
         if n > 0:  # Avoid division by zero
             word_data.append({
+                'sentence_id': sentence_id,
+                'word_id': word_id,
                 'word': word,
-                'original_forms': ', '.join(sorted(stats['original_forms'])),
+                'original_word': stats['original_word'],
+                'position': stats['position'],
+                'sentence': stats['sentence'],
                 'length': stats['length'],
                 'frequency': stats['frequency'] / n,
                 'log_frequency': stats['log_frequency'] / n,
@@ -103,12 +121,39 @@ def collect_word_statistics():
                              labels=['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'])
     
     # Print some basic statistics
-    print(f"\nProcessed {len(word_stats)} unique words")
+    print(f"\nProcessed {len(word_stats)} unique word occurrences")
     print(f"Found {sum(stats['skip_count'] for stats in word_stats.values())} total skips")
     print(f"Found {sum(stats['regression_count'] for stats in word_stats.values())} total regressions")
     print(f"Average predictability: {df['predictability'].mean():.3f}")
     print("\nPredictability class distribution:")
     print(df['pred_class'].value_counts().sort_index())
+    
+    # Save to CSV
+    output_dir = "/home/baiy4/ScanDL/scripts/data/zuco/bai_word_probability_analysis"
+    os.makedirs(output_dir, exist_ok=True)
+    df.to_csv(os.path.join(output_dir, "complete_word_analysis.csv"), index=False)
+    
+    # Save to JSON
+    word_features = {}
+    for _, row in df.iterrows():
+        # Convert tuple key to string format
+        word_key = f"{row['sentence_id']}_{row['word_id']}_{row['word']}"
+        word_features[word_key] = {
+            'length': row['length'],
+            'frequency': row['frequency'],
+            'log_frequency': row['log_frequency'],
+            'difficulty': row['difficulty'],
+            'predictability': row['predictability'],
+            'logit_predictability': row['logit_predictability'],
+            'skip_probability': row['skip_probability'],
+            'regression_probability': row['regression_probability'],
+            'total_occurrences': row['total_occurrences'],
+            'position': row['position'],
+            'sentence': row['sentence']
+        }
+    
+    with open(os.path.join(output_dir, "word_features.json"), 'w', encoding='utf-8') as f:
+        json.dump(word_features, f, indent=2, ensure_ascii=False)
     
     return df
 
@@ -338,14 +383,14 @@ def analyze_and_plot_relationships(df, output_dir):
     
     # 1. Skipping analysis
     skip_analysis = df[[
-        'word', 'original_forms', 'length', 'frequency', 'log_frequency', 
+        'word', 'original_word', 'length', 'frequency', 'log_frequency', 
         'predictability', 'skip_probability', 'total_occurrences'
     ]].sort_values('skip_probability', ascending=False)
     skip_analysis.to_csv(os.path.join(output_dir, 'word_skipping_analysis.csv'), index=False)
     
     # 2. Regression analysis
     regression_analysis = df[[
-        'word', 'original_forms', 'difficulty', 'regression_probability', 
+        'word', 'original_word', 'difficulty', 'regression_probability', 
         'total_occurrences'
     ]].sort_values('regression_probability', ascending=False)
     regression_analysis.to_csv(os.path.join(output_dir, 'word_regression_analysis.csv'), index=False)

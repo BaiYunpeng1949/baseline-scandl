@@ -33,7 +33,11 @@ python analyze_reading_patterns.py
 ```bash
 python analyze_word_probabilities.py
 ```
-- Calculates word skipping and regression probabilities
+- Calculates word skipping and regression probabilities at the individual word occurrence level
+- Each word occurrence is uniquely identified by:
+  - Sentence ID
+  - Word position in sentence
+  - Word itself
 - Analyzes effects of word length, frequency, and difficulty
 - Creates visualization plots and statistical summaries
 - Outputs to `zuco/bai_word_probability_analysis/`
@@ -66,12 +70,12 @@ zuco/
 - Word predictability (placeholder for future LLM implementation)
 
 ### Reading Behaviors
-- First-pass word skipping
-- Word regression patterns
+- First-pass word skipping (calculated per unique word occurrence)
+- Word regression patterns (calculated per unique word occurrence)
 - Eye-tracking metrics (FFD, GD, TRT, etc.)
 
 ### Statistical Measures
-- Skip and regression probabilities
+- Skip and regression probabilities (calculated per unique word occurrence)
 - Correlations with word features
 - Distribution statistics
 - Confidence intervals
@@ -89,4 +93,5 @@ pip install numpy pandas matplotlib seaborn
 - Word difficulty is calculated using the SWIFT model
 - Predictability values are currently placeholders (set to 0)
 - All analyses exclude punctuation marks and use lowercase words
-- Regression analysis only considers short-distance regressions (≤ 5 words) 
+- Regression analysis only considers short-distance regressions (≤ 5 words)
+- Word probabilities are calculated at the individual occurrence level, capturing how the same word can have different reading patterns depending on its context and position in the sentence 
